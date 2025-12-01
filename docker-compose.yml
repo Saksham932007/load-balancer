@@ -1,0 +1,73 @@
+version: '3.8'
+
+services:
+  # Load Balancer
+  load-balancer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    depends_on:
+      - backend1
+      - backend2
+      - backend3
+    environment:
+      - LOG_LEVEL=info
+    networks:
+      - lb-network
+
+  # Backend 1 - Simple Python HTTP server
+  backend1:
+    image: python:3.9-alpine
+    command: python -m http.server 8001
+    working_dir: /app
+    volumes:
+      - ./test-data:/app
+    expose:
+      - "8001"
+    networks:
+      - lb-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8001"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Backend 2 - Simple Python HTTP server
+  backend2:
+    image: python:3.9-alpine
+    command: python -m http.server 8002
+    working_dir: /app
+    volumes:
+      - ./test-data:/app
+    expose:
+      - "8002"
+    networks:
+      - lb-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8002"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Backend 3 - Simple Python HTTP server
+  backend3:
+    image: python:3.9-alpine
+    command: python -m http.server 8003
+    working_dir: /app
+    volumes:
+      - ./test-data:/app
+    expose:
+      - "8003"
+    networks:
+      - lb-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8003"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+networks:
+  lb-network:
+    driver: bridge
