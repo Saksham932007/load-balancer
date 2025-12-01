@@ -27,11 +27,23 @@ func (s *ServerPool) NextIndex() int {
 }
 
 // GetNextPeer returns the next available backend using round-robin algorithm.
+// It skips backends that are marked as not alive.
 func (s *ServerPool) GetNextPeer() *backend.Backend {
 	if len(s.backends) == 0 {
 		return nil
 	}
 
-	nextIdx := s.NextIndex()
-	return s.backends[nextIdx]
+	// Try each backend once (starting from next index)
+	for i := 0; i < len(s.backends); i++ {
+		nextIdx := s.NextIndex()
+		backend := s.backends[nextIdx]
+
+		// Skip dead backends
+		if backend.IsAlive() {
+			return backend
+		}
+	}
+
+	// All backends are dead
+	return nil
 }
