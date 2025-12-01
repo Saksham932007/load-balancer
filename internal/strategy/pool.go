@@ -25,3 +25,13 @@ func NewServerPool(backends []*backend.Backend) *ServerPool {
 func (s *ServerPool) NextIndex() int {
 	return int(atomic.AddUint64(&s.current, uint64(1)) % uint64(len(s.backends)))
 }
+
+// GetNextPeer returns the next available backend using round-robin algorithm.
+func (s *ServerPool) GetNextPeer() *backend.Backend {
+	if len(s.backends) == 0 {
+		return nil
+	}
+
+	nextIdx := s.NextIndex()
+	return s.backends[nextIdx]
+}
