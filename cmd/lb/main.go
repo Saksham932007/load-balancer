@@ -35,6 +35,11 @@ func main() {
 }
 
 func handleRequest(w http.ResponseWriter, r *http.Request) {
+	// Add X-Forwarded-For header to track original client IP
+	if clientIP := r.Header.Get("X-Real-IP"); clientIP == "" {
+		r.Header.Set("X-Forwarded-For", r.RemoteAddr)
+	}
+
 	// Forward request to the hardcoded backend
 	backendInstance.ReverseProxy.ServeHTTP(w, r)
 }
