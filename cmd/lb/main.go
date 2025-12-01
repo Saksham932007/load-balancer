@@ -54,13 +54,42 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 		r.Header.Set("X-Forwarded-For", r.RemoteAddr)
 	}
 
-	// Get next backend from pool
-	peer := serverPool.GetNextPeer()
-	if peer == nil {
-		http.Error(w, "No backends available", http.StatusServiceUnavailable)
-		return
+	// Retry logic: attempt to forward to available backends
+	attempts := 0
+	maxAttempts := len(backendURLs)
+
+	for attempts < maxAttempts {
+		peer := serverPool.GetNextPeer()
+		if peer == nil {
+			http.Error(w, "No backends available", http.StatusServiceUnavailable)
+			return
+		}
+
+		// Use a custom response writer to detect failures
+		recorder := &responseRecorder{ResponseWriter: w, statusCode: http.StatusOK}
+		peer.ReverseProxy.ServeHTTP(recorder, r)
+
+		// If backend responded successfully (not 503), we're done
+		if recorder.statusCode != http.StatusServiceUnavailable {
+			return
+		}
+
+		// Backend failed, try next one
+		attempts++
+		log.Printf("Backend %s failed (503), trying next peer (attempt %d/%d)", peer.URL, attempts, maxAttempts)
 	}
 
-	// Forward request to the selected backend
-	peer.ReverseProxy.ServeHTTP(w, r)
+	// All backends failed
+	http.Error(w, "All backends unavailable", http.StatusServiceUnavailable)
+}
+
+// responseRecorder wraps http.ResponseWriter to capture the status code
+type responseRecorder struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+func (r *responseRecorder) WriteHeader(statusCode int) {
+	r.statusCode = statusCode
+	r.ResponseWriter.WriteHeader(statusCode)
 }
