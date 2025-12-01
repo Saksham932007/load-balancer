@@ -1,7 +1,7 @@
 package health
 
 import (
-	"log"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -21,7 +21,7 @@ func CheckBackend(b *backend.Backend) {
 
 	resp, err := client.Get(b.URL.String())
 	if err != nil {
-		log.Printf("Health check failed for %s: %v", b.URL, err)
+		slog.Debug("Health check failed", "backend", b.URL.String(), "error", err)
 		b.SetAlive(false)
 		return
 	}
@@ -30,11 +30,11 @@ func CheckBackend(b *backend.Backend) {
 	// Consider 2xx and 3xx status codes as healthy
 	if resp.StatusCode >= 200 && resp.StatusCode < 400 {
 		if !b.IsAlive() {
-			log.Printf("Backend %s is now alive", b.URL)
+			slog.Info("Backend recovered", "backend", b.URL.String())
 		}
 		b.SetAlive(true)
 	} else {
-		log.Printf("Backend %s returned status %d", b.URL, resp.StatusCode)
+		slog.Warn("Backend unhealthy", "backend", b.URL.String(), "status", resp.StatusCode)
 		b.SetAlive(false)
 	}
 }
@@ -44,7 +44,7 @@ func StartHealthCheck(backends []*backend.Backend) {
 	ticker := time.NewTicker(healthCheckInterval)
 	go func() {
 		for range ticker.C {
-			log.Println("Running health checks...")
+			slog.Debug("Running periodic health checks")
 			for _, b := range backends {
 				go CheckBackend(b)
 			}
@@ -52,7 +52,7 @@ func StartHealthCheck(backends []*backend.Backend) {
 	}()
 
 	// Run initial health check immediately
-	log.Println("Running initial health checks...")
+	slog.Info("Running initial health checks")
 	for _, b := range backends {
 		go CheckBackend(b)
 	}

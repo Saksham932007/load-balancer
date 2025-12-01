@@ -1,8 +1,10 @@
 package main
 
 import (
-	"log"
+	"log/slog"
 	"net/http"
+	"os"
+	"time"
 
 	"github.com/Saksham932007/load-balancer/internal/backend"
 	"github.com/Saksham932007/load-balancer/internal/health"
@@ -20,18 +22,26 @@ var (
 		"http://localhost:8003",
 	}
 	serverPool *strategy.ServerPool
+	logger     *slog.Logger
 )
 
 func main() {
+	// Initialize structured JSON logger
+	logger = slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
+	slog.SetDefault(logger)
+
 	// Initialize backends from URL list
 	var backends []*backend.Backend
 	for _, urlStr := range backendURLs {
 		b, err := backend.NewBackend(urlStr)
 		if err != nil {
-			log.Fatalf("Failed to create backend %s: %v", urlStr, err)
+			logger.Error("Failed to create backend", "url", urlStr, "error", err)
+			os.Exit(1)
 		}
 		backends = append(backends, b)
-		log.Printf("Added backend: %s", urlStr)
+		logger.Info("Added backend", "url", urlStr)
 	}
 
 	// Initialize server pool
@@ -45,14 +55,17 @@ func main() {
 		Handler: http.HandlerFunc(handleRequest),
 	}
 
-	log.Printf("Starting load balancer on %s", listenAddr)
-	log.Printf("Load balancing across %d backends", len(backends))
+	logger.Info("Starting load balancer", "address", listenAddr, "backends", len(backends))
 	if err := server.ListenAndServe(); err != nil {
-		log.Fatalf("Server failed: %v", err)
+		logger.Error("Server failed", "error", err)
+		os.Exit(1)
 	}
 }
 
 func handleRequest(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	clientIP := r.RemoteAddr
+
 	// Add X-Forwarded-For header to track original client IP
 	if clientIP := r.Header.Get("X-Real-IP"); clientIP == "" {
 		r.Header.Set("X-Forwarded-For", r.RemoteAddr)
@@ -65,6 +78,7 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 	for attempts < maxAttempts {
 		peer := serverPool.GetNextPeer()
 		if peer == nil {
+			logger.Warn("No backends available", "client_ip", clientIP)
 			http.Error(w, "No backends available", http.StatusServiceUnavailable)
 			return
 		}
@@ -73,17 +87,33 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 		recorder := &responseRecorder{ResponseWriter: w, statusCode: http.StatusOK}
 		peer.ReverseProxy.ServeHTTP(recorder, r)
 
+		latency := time.Since(start)
+
 		// If backend responded successfully (not 503), we're done
 		if recorder.statusCode != http.StatusServiceUnavailable {
+			logger.Info("Request completed",
+				"client_ip", clientIP,
+				"method", r.Method,
+				"path", r.URL.Path,
+				"backend", peer.URL.String(),
+				"status", recorder.statusCode,
+				"latency_ms", latency.Milliseconds(),
+			)
 			return
 		}
 
 		// Backend failed, try next one
 		attempts++
-		log.Printf("Backend %s failed (503), trying next peer (attempt %d/%d)", peer.URL, attempts, maxAttempts)
+		logger.Warn("Backend failed, retrying",
+			"backend", peer.URL.String(),
+			"attempt", attempts,
+			"max_attempts", maxAttempts,
+			"client_ip", clientIP,
+		)
 	}
 
 	// All backends failed
+	logger.Error("All backends unavailable", "client_ip", clientIP)
 	http.Error(w, "All backends unavailable", http.StatusServiceUnavailable)
 }
 
