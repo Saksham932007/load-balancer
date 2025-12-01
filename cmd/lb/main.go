@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/Saksham932007/load-balancer/internal/backend"
+	"github.com/Saksham932007/load-balancer/internal/health"
 	"github.com/Saksham932007/load-balancer/internal/strategy"
 )
 
@@ -35,6 +36,9 @@ func main() {
 
 	// Initialize server pool
 	serverPool = strategy.NewServerPool(backends)
+
+	// Start health checking in background
+	health.StartHealthCheck(backends)
 
 	server := http.Server{
 		Addr:    listenAddr,
