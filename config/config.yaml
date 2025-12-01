@@ -1,0 +1,11 @@
+listen: ":8080"
+health_check_interval: 10s
+timeout: 5s
+
+backends:
+  - url: http://localhost:8001
+    port: 8001
+  - url: http://localhost:8002
+    port: 8002
+  - url: http://localhost:8003
+    port: 8003
