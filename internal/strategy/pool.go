@@ -1,6 +1,8 @@
 package strategy
 
 import (
+	"sync/atomic"
+
 	"github.com/Saksham932007/load-balancer/internal/backend"
 )
 
@@ -16,4 +18,10 @@ func NewServerPool(backends []*backend.Backend) *ServerPool {
 		backends: backends,
 		current:  0,
 	}
+}
+
+// NextIndex atomically increments and returns the next index for round-robin.
+// This method is thread-safe and prevents race conditions.
+func (s *ServerPool) NextIndex() int {
+	return int(atomic.AddUint64(&s.current, uint64(1)) % uint64(len(s.backends)))
 }
