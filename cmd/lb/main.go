@@ -5,22 +5,36 @@ import (
 	"net/http"
 
 	"github.com/Saksham932007/load-balancer/internal/backend"
+	"github.com/Saksham932007/load-balancer/internal/strategy"
 )
 
 const (
-	listenAddr     = ":8080"
-	hardcodedBackend = "http://localhost:8001"
+	listenAddr = ":8080"
 )
 
-var backendInstance *backend.Backend
+var (
+	backendURLs = []string{
+		"http://localhost:8001",
+		"http://localhost:8002",
+		"http://localhost:8003",
+	}
+	serverPool *strategy.ServerPool
+)
 
 func main() {
-	// Initialize hardcoded backend
-	var err error
-	backendInstance, err = backend.NewBackend(hardcodedBackend)
-	if err != nil {
-		log.Fatalf("Failed to create backend: %v", err)
+	// Initialize backends from URL list
+	var backends []*backend.Backend
+	for _, urlStr := range backendURLs {
+		b, err := backend.NewBackend(urlStr)
+		if err != nil {
+			log.Fatalf("Failed to create backend %s: %v", urlStr, err)
+		}
+		backends = append(backends, b)
+		log.Printf("Added backend: %s", urlStr)
 	}
+
+	// Initialize server pool
+	serverPool = strategy.NewServerPool(backends)
 
 	server := http.Server{
 		Addr:    listenAddr,
@@ -28,7 +42,7 @@ func main() {
 	}
 
 	log.Printf("Starting load balancer on %s", listenAddr)
-	log.Printf("Forwarding to backend: %s", hardcodedBackend)
+	log.Printf("Load balancing across %d backends", len(backends))
 	if err := server.ListenAndServe(); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
@@ -40,6 +54,13 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 		r.Header.Set("X-Forwarded-For", r.RemoteAddr)
 	}
 
-	// Forward request to the hardcoded backend
-	backendInstance.ReverseProxy.ServeHTTP(w, r)
+	// Get next backend from pool
+	peer := serverPool.GetNextPeer()
+	if peer == nil {
+		http.Error(w, "No backends available", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Forward request to the selected backend
+	peer.ReverseProxy.ServeHTTP(w, r)
 }
